@@ -252,6 +252,9 @@ Cuenta de Mercado Libre con productos comprados en Amazon: sus ventas se traen i
 ### 🔔 Notificaciones en el escritorio (aunque el panel esté cerrado)
 En **Preguntas** o **Recompras** tocá **🔔 Activar notificaciones** → **Activar** → Permitir. Desde ese momento a esa compu (o celular) le llegan avisos de Windows/Android **aunque el panel esté cerrado**, mientras el navegador esté abierto o en segundo plano: cada **pregunta nueva** al instante, y a las **9 de la mañana** cuántos clientes hay para avisar en **Recompras**. Se activa en cada equipo; con **Probar** ves cómo llega y con **Desactivar** se apaga. Si no aparecen: Windows → Configuración → Sistema → Notificaciones → que el navegador esté activado y "No molestar" apagado.
 
+### Envío Flex que paga el comprador
+En las ventas Flex de **menos de $33.000** el envío lo paga el comprador, así que **no se descuenta** tu costo de reparto: en Ventas aparece la zona con "lo paga el comprador" y el neto no lo resta (tampoco en Resultado del mes). El monto se cambia en ⚙️ Configuración → "Envío Flex: ventas de menos de este precio…".
+
 ### 💬 Preguntas (todas las cuentas)
 Menú lateral → **Preguntas**: las preguntas de los compradores de todas tus cuentas de Mercado Libre (incluida TUYO; con el selector elegís cuáles ver). Cada una muestra la cuenta, el comprador, la publicación (foto, precio, stock y SKU) y la pregunta; respondés ahí mismo y se publica en Mercado Libre.
 - **Al instante**: activá una vez las notificaciones de Mercado Libre (el cartel de la sección te guía): en developers.mercadolibre.com.ar → Mis aplicaciones → tu aplicación → Editar, en **URL de retornos de llamada de notificación** poné `https://<tu panel>/api/ml/notify` y tildá el tópico **Questions**. Además, por las dudas, el panel repasa las preguntas sin responder cada pocos minutos.
