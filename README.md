@@ -224,6 +224,61 @@ En el menú lateral, **📱 Estados de WhatsApp**. El panel lee los productos de
 7. **Descargar imagen**, o en el celu **Compartir en WhatsApp → Mi estado**.
 Si la web no deja leer la lista de productos, en "Configurar web" cargá una clave de WooCommerce de solo **Lectura** (WordPress → WooCommerce → Ajustes → Avanzado → API REST → Añadir clave).
 
+### Recibos en el Resultado del mes
+En **📊 Resultado del mes** se suman los presupuestos **confirmados** del mes (por su fecha), separados por origen. En **Presupuestos**, cada uno tiene el botón **✅ Confirmado / ⏳ Sin confirmar**: los nuevos arrancan sin confirmar y los tocás cuando se venden (los anteriores a este cambio quedaron confirmados). Los sin confirmar aparecen como aviso, sin sumar. Se separan por origen: **Pacientes de Lara**, **WhatsApp**, **Local** (y Mail, Instagram o "Sin origen" si hay). La ganancia se calcula igual que la web: total − impuestos (23%) − costo de mercadería de la lista de precios. Entran en el NETO NETO, en el histórico y en el Excel del resultado.
+
+### Elegir qué cuentas ver (Ventas y Resultado del mes)
+En **Resultado del mes** también está el selector de cuentas (al lado del mes), con **Todas / Todas menos TUYO / Ninguna** o tildando una por una, y además podés sacar **Ventas web** o **Presupuestos confirmados** del cálculo. **TUYO aparece en la lista pero viene destildada**: si la tildás, se suma con su propio bloque (bruto, comisiones, envíos, impuestos, costo Amazon y Neto TUYO), entra en la facturación total y el NETO NETO, aparece la columna TUYO en el histórico y también se incluye en el informe PDF. Si no la tildás, no se suma. En **Total del mes**, debajo de "Neto de todas las ventas", está **Neto Mercado Libre + comisiones**: el neto que paga Mercado Libre (el mismo "Neto antes del costo de mercadería" de Ventas) más las comisiones de Mercado Libre (y TUYO si está tildada). Debajo de "Ventas brutas" de Mercado Libre se ve cuánto vendió cada cuenta. Al lado de lo facturado de cada cuenta está su **Neto** = neto que paga Mercado Libre (antes del costo de mercadería) + comisiones; también sale en el informe PDF. Cada sección recuerda su propia elección.
+
+### Ventas por cuenta
+En **Ventas**, arriba de la lista, la tabla **Ventas por cuenta** muestra para el período elegido cuánto vendió cada cuenta de Mercado Libre: ventas, unidades, facturado, % del total, neto y neto después de costos, y canceladas.
+
+### 📄 Informe del mes (PDF)
+En **Resultado del mes** elegí el mes con las flechas y tocá **📄 Informe PDF**. Se descarga un PDF listo para imprimir o mandar con: un resumen en texto comparado con el mes anterior (facturación, ventas, ganancia, neto neto, la cuenta que más vendió, el producto más vendido, el mejor día), los indicadores principales, de dónde vino la facturación (Mercado Libre, web y presupuestos), Mercado Libre por cuenta, los 10 más vendidos (con las unidades del mes anterior) y los gastos del local por categoría. Incluye TUYO solo si está tildada en el selector de cuentas.
+
+### Elegir qué cuentas ver y traer (Ventas)
+En **Ventas**, la lista **Todas las cuentas** se abre y tiene una casilla por cuenta: tildá solo las que querés ver. **Traer ventas de este período** trae solo esas. Atajos: **Todas**, **Todas menos TUYO** y **Ninguna**. La elección queda guardada.
+
+### 🛒 TUYO (productos de Amazon)
+Cuenta de Mercado Libre con productos comprados en Amazon: sus ventas se traen igual que las demás, pero el costo no sale de la lista de precios.
+1. Conectá la cuenta nueva (en TUYO → **Copiar link de invitación**, abrilo en incógnito y autorizá con esa cuenta).
+2. En **TUYO** elegí esa cuenta. Arriba quedan el **envío por kilo (US$ 35)** y el **tipo de cambio (1550)**, editables.
+3. Traé sus ventas desde **Ventas** (elegí la cuenta → Traer ventas).
+4. En la tabla de productos cargá a cada publicación el **precio en Amazon (US$)** y el **peso** (kg, libras u onzas). El panel calcula: costo US$ = precio + peso en kilos × 35; costo $ = costo US$ × 1550. Se guarda solo.
+5. Arriba elegís el período: **Hoy**, **7 días**, **30 días**, un mes con las flechas, o un rango con las fechas **desde/hasta**. **Traer ventas de este período** trae todas las ventas pagadas de esa cuenta en esas fechas, aunque todavía no se hayan despachado.
+6. **Cómo se pagó y cuánto queda**: facturación bruta − canceladas y devueltas − comisiones − envíos − impuestos − costo Amazon = neto después de costos. Abajo está la lista de ventas igual que en Ventas, con filtro Por enviar / En camino / Entregadas / Canceladas y devueltas.
+7. En **Resultado del mes** (y en el informe PDF) TUYO se suma solo si la tildás en el selector de cuentas.
+
+### 🔔 Notificaciones en el escritorio (aunque el panel esté cerrado)
+En **Preguntas** o **Recompras** tocá **🔔 Activar notificaciones** → **Activar** → Permitir. Desde ese momento a esa compu (o celular) le llegan avisos de Windows/Android **aunque el panel esté cerrado**, mientras el navegador esté abierto o en segundo plano: cada **pregunta nueva** al instante, y a las **9 de la mañana** cuántos clientes hay para avisar en **Recompras**. Se activa en cada equipo; con **Probar** ves cómo llega y con **Desactivar** se apaga. Si no aparecen: Windows → Configuración → Sistema → Notificaciones → que el navegador esté activado y "No molestar" apagado.
+
+### 💬 Preguntas (todas las cuentas)
+Menú lateral → **Preguntas**: las preguntas de los compradores de todas tus cuentas de Mercado Libre (incluida TUYO; con el selector elegís cuáles ver). Cada una muestra la cuenta, el comprador, la publicación (foto, precio, stock y SKU) y la pregunta; respondés ahí mismo y se publica en Mercado Libre.
+- **Al instante**: activá una vez las notificaciones de Mercado Libre (el cartel de la sección te guía): en developers.mercadolibre.com.ar → Mis aplicaciones → tu aplicación → Editar, en **URL de retornos de llamada de notificación** poné `https://<tu panel>/api/ml/notify` y tildá el tópico **Questions**. Además, por las dudas, el panel repasa las preguntas sin responder cada pocos minutos.
+- **Aviso**: numerito rojo en el menú, sonido (🔊 se apaga desde la sección) y notificación del navegador (🔔 Activar avisos en esta compu) cuando entra una pregunta nueva con el panel abierto.
+- **⚡ Respuestas rápidas**: textos guardados que se insertan con un toque (ej. Stock, Envío, Cómo se toma).
+- **👤 Historial del comprador**: otras preguntas que te hizo y si ya te compró.
+
+### 🔔 Recompras (cuándo se le termina el suplemento al cliente)
+Usa la columna **DURACION** de la lista de precios (por ejemplo "60 DIAS"). Por cada venta de Mercado Libre, presupuesto confirmado o venta web, cruza el SKU con esa duración: fecha de compra + días (× unidades: 2 frascos de 30 días = 60 días). **Aviso del día:** a cada cliente le toca avisarle **1 día antes** de que se le termine; si ese día cae **sábado o domingo, el aviso pasa al lunes** (todos juntos). El numerito rojo del menú, el cartel de arriba y la notificación del navegador (🔔 Activar avisos en esta compu) cuentan **solo los de hoy**. Las dos cosas se cambian en **⚙️ Mensajes y aviso**.
+- Pestañas: **Hoy** · **Próximos 7 días** (se terminan hoy, mañana o en los próximos días) · **Después** · **Avisados** · **Todos**, y **Día de aviso** para ver cualquier fecha.
+- **Varios a la vez:** tildá los clientes (o el casillero de arriba para todos) y tocá **✉️ Mandar el mismo mensaje**. Elegís por dónde (ML a los de ML y WhatsApp al resto, WhatsApp a todos los que lo tienen, o solo ML) y a cada uno le cambia el nombre, el producto y la fecha. Los de Mercado Libre se mandan solos; los de WhatsApp se abren de a uno con **Abrir el siguiente**. También podés **marcar avisados** o **no avisar** a todos los tildados.
+- **💬 Mercado Libre**: abre el mensaje ya armado (lo podés cambiar) y lo manda por la mensajería de la venta. Máximo 350 caracteres.
+- **🟢 WhatsApp**: aparece si tenemos el teléfono (presupuestos, web, o compradores de ML que alguna vez pasaron por un envío Flex escaneado); abre WhatsApp con el mensaje listo. Si no está, tocá **➕ Agregar WhatsApp** debajo del nombre: queda guardado para todas las compras de ese cliente (con ✏️ se cambia o se borra).
+- **✓** ya le avisaste por otro lado · **✕** no avisar. Si el cliente volvió a comprar el mismo producto antes de que se le termine, se marca solo como **🔁 volvió a comprar**.
+- Los mensajes usan {nombre}, {producto}, {fecha}, {cuando}, {dias} y {hasta} (hoy + 7 días, para la validez del descuento). Los dos (WhatsApp y Mercado Libre) ofrecen un **cupón de 10% de descuento válido por 7 días** para reponer. En ML conviene mandarlos de a uno (Mercado Libre controla los mensajes con promociones) y, para aplicar el descuento, crear un cupón de vendedor en ML.
+- **Nombre del cliente**: en ML se busca solo en los datos de facturación de la venta; si no aparece, tocá ✏️ al lado del nombre y cargalo (queda para todas sus compras). Los productos sin duración en la planilla no avisan.
+
+### ✅ Tareas
+Para repartir tareas al equipo (menú lateral → **Tareas**).
+1. Tocá **👥 Encargados** y cargá los nombres (cada uno con su color).
+2. **+ Nueva tarea**: qué hay que hacer, detalle, encargado, prioridad y, si querés, **fecha límite** (con hora opcional; si no la tildás, queda sin fecha). Podés sumar **fotos** (se achican solas para que suban rápido), **archivos** (PDF, Excel, etc.) y **links** (por ejemplo un Google Doc). También podés arrastrar fotos o archivos sobre la ventana.
+3. Los encargados entran al panel con la contraseña de siempre, eligen su nombre arriba en **Soy** (queda guardado en ese celular o compu) y en cada tarea tocan **Sin revisar / En proceso / Terminada**. También pueden dejar comentarios con fotos. Todo queda en el **Historial** de la tarea con quién lo hizo.
+4. Se ve **Por estado** (3 columnas) o **Por empleado** (una columna por encargado). Arriba: filtro por encargado, buscador y **Ocultar terminadas**. Las vencidas se marcan en rojo y los contadores muestran cuántas hay.
+
+### Subir gastos desde Excel
+En **🏪 Gastos del local** → **📥 Subir Excel**. El panel reconoce solo las columnas (Fecha, Gasto/Concepto, Monto/Importe, Forma de pago, Detalle), aunque el título no esté en la primera fila. Antes de importar muestra una vista previa; si alguna columna no se reconoció, la elegís en la lista. Si la planilla tiene varias hojas (por ejemplo una por mes), podés importar **Todas las hojas**. Las filas de TOTAL se ignoran y los gastos que ya estaban cargados (misma fecha, gasto y monto) se saltean.
+
 ### Etiquetas de producto
 En el menú lateral, **🏷️ Etiquetas de producto**. Arma la etiqueta de 10 × 5 cm igual a los modelos de cada marca, pero dice **SKU** en lugar de MODELO.
 1. Tocá la marca: **BIOGATE**, **PESTGATE**, **PETGO** o **PLAYFUSION** (logo, color de la barra y del borde de cada una).

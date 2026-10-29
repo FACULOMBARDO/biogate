@@ -32,6 +32,11 @@ const woo = require('./lib/woo');
 const insights = require('./lib/insights');
 const manuals = require('./lib/manuals');
 const deliveries = require('./lib/deliveries');
+const tuyo = require('./lib/tuyo');
+const tasks = require('./lib/tasks');
+const refill = require('./lib/refill');
+const questions = require('./lib/questions');
+const push = require('./lib/push');
 
 const MISSING = ['ML_CLIENT_ID', 'ML_CLIENT_SECRET', 'BASE_URL', 'ADMIN_PASSWORD'].filter(k => !process.env[k]);
 if (onVercel && !store.REMOTE) MISSING.push('KV_REST_API_URL / KV_REST_API_TOKEN (conectá la base Upstash Redis al proyecto)');
@@ -71,7 +76,10 @@ app.use(express.json({ limit: '15mb' }));
 // Agrega zona y costo de envío a cada registro (se calcula al momento, así un cambio de precios se refleja en todo).
 // Mensaje de bienvenida sugerido (editable en Configuración). {nombre} = nombre del comprador.
 // Versión completa para WhatsApp (sin el límite de 350 caracteres de Mercado Libre).
-const DEFAULT_WA_WELCOME = "Hola {nombre}! Te hablo de Biogate 💜⚡\n\n📦 Tu compra realizada por Mercado Libre ya está siendo embalada para despacharse hoy.\n\nTe llega entre 15hs y 22hs de hoy.\n\nSi deseas realizar un cambio o agregar artículos, podés avisarnos!!\n\n📲 ¡Agendanos en tus contactos! Así vas a poder ver todas las promos, descuentos y novedades exclusivas que subimos todos los días a nuestros estados de WhatsApp. 👀🔥\n\n🎺 Además, en tu primera compra por este medio recibís un 10% de descuento.\n\n📍 Estamos en Gral. Jose Gervasio Artigas 5767, Villa Pueyrredón, con más de 300 artículos disponibles.\n\n🌐 Web: www.biogate.com.ar\n\n📸 Instagram: @biogate.arg\n\n¡Gracias por tu compra! 💜⚡";
+const DEFAULT_WA_WELCOME = "Hola {nombre}! Te hablo de Biogate\n\nTu compra realizada por Mercado Libre ya está siendo embalada para despacharse hoy.\n\nTe llega entre 15hs y 22hs de hoy.\n\nSi deseas realizar un cambio o agregar artículos, podés avisarnos!!\n\n¡Agendanos en tus contactos! Así vas a poder ver todas las promos, descuentos y novedades exclusivas que subimos todos los días a nuestros estados de WhatsApp.\n\nAdemás, en tu primera compra por este medio recibís un 10% de descuento.\n\nEstamos en Gral. Jose Gervasio Artigas 5767, Villa Pueyrredón, con más de 300 artículos disponibles.\n\nWeb: www.biogate.com.ar\n\nInstagram: @biogate.arg\n\n¡Gracias por tu compra!";
+// Mensaje nuevo sin emojis (oct 2026): reemplaza una sola vez el que estaba guardado.
+const WA_WELCOME_VERSION = 2;
+function waWelcomeUpgrade() { const st = store.getSettings(); if ((st.wa_welcome_v || 1) < WA_WELCOME_VERSION) store.saveSettings({ wa_welcome: DEFAULT_WA_WELCOME, wa_welcome_v: WA_WELCOME_VERSION }); }
 const DEFAULT_WELCOME = '¡Hola, {nombre}! Soy Facundo, de Biogate. Recibimos tu compra correctamente y ya la estamos preparando para que te llegue cuanto antes y en perfectas condiciones. Si tenés alguna duda, escribinos por acá: estamos para ayudarte. Te invitamos a conocer nuestros productos para el cuidado de tu salud. ¡Quedo a tu disposición! Saludos.';
 const withZone = (s) => ({ ...s, ...zones.zoneFor(s, store.getSettings()) });
 app.use(express.urlencoded({ extended: false }));
@@ -148,11 +156,27 @@ app.get('/api/cron/daily', async (req, res) => {
   const okAuth = secret ? req.headers.authorization === `Bearer ${secret}` : /vercel-cron/i.test(req.headers['user-agent'] || '');
   if (!okAuth) return res.status(401).json({ ok: false });
   const runs = autoTasks(true);
+  runs.push(bg(refillPush(false).catch(e => console.log('Push recompras:', e.message))));
   await Promise.race([Promise.allSettled(runs), new Promise(r => setTimeout(r, 250e3))]);
   await store.flush();
   res.json({ ok: true, ran: runs.length });
 });
 
+
+// Service worker de las notificaciones (tiene que estar en la raíz y sin login).
+app.get('/sw.js', (req, res) => { res.setHeader('Content-Type', 'application/javascript'); res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Service-Worker-Allowed', '/'); res.sendFile(path.join(__dirname, 'public', 'sw.js')); });
+
+// Notificaciones de Mercado Libre (sin login: las manda Mercado Libre). Hay que contestar rápido (200)
+// y después traer la pregunta. En developers de ML: URL de notificaciones = <tu panel>/api/ml/notify, tópico "Questions".
+app.post('/api/ml/notify', (req, res) => {
+  const b = req.body || {};
+  const mine = !process.env.ML_CLIENT_ID || String(b.application_id || '') === String(process.env.ML_CLIENT_ID);
+  if (mine && String(b.topic || '').startsWith('questions') && store.getAccount(String(b.user_id))) {
+    questions.markWebhook();
+    bg(questions.onNotify(b).then(() => store.flush()).catch(e => console.log('Pregunta:', e.message)));
+  }
+  res.status(200).json({ ok: true });
+});
 
 // ---------- Conectar cuentas de Mercado Libre ----------
 // /connect la usás vos (logueado). /vincular/<código> es un link que le podés pasar
@@ -209,7 +233,7 @@ app.use('/api', (req, res, next) => { if (onVercel) autoTasks(); next(); });
 // ---------- API ----------
 app.get('/api/invite', (req, res) => res.json({ url: `${process.env.BASE_URL.replace(/\/$/, '')}/vincular/${INVITE}` }));
 app.get('/api/accounts', (req, res) => {
-  res.json(store.getAccounts().map(a => ({ user_id: a.user_id, nickname: a.nickname || '', connected_at: a.connected_at, needs_reconnect: !!a.needs_reconnect || !a.refresh_token, reconnect_reason: a.reconnect_reason || (!a.refresh_token ? 'Esta cuenta se conectó sin "refresh token": activá "Refresh Token" en tu aplicación y volvé a conectarla.' : '') })));
+  res.json(store.getAccounts().map(a => ({ user_id: a.user_id, nickname: a.nickname || '', tuyo: tuyo.isTuyo(a.user_id), connected_at: a.connected_at, needs_reconnect: !!a.needs_reconnect || !a.refresh_token, reconnect_reason: a.reconnect_reason || (!a.refresh_token ? 'Esta cuenta se conectó sin "refresh token": activá "Refresh Token" en tu aplicación y volvé a conectarla.' : '') })));
 });
 app.delete('/api/accounts/:id', (req, res) => { store.removeAccount(req.params.id); res.json({ ok: true }); });
 
@@ -256,6 +280,7 @@ app.put('/api/woo/orders/:id/ship', (req, res) => { try { const sh = deliveries.
 
 // Zonas y precios
 app.get('/api/settings', (req, res) => {
+  waWelcomeUpgrade();
   const st = store.getSettings();
   res.json({ costs_sheet_url: st.costs_sheet_url || costs.DEFAULT_SHEET_URL, tax_pct: st.tax_pct ?? sales.DEFAULT_TAX_PCT, prices: { ...zones.DEFAULT_PRICES, ...(st.prices || {}) }, zones: zones.ZONES, has_logo: hasLogo(), welcome: st.welcome || DEFAULT_WELCOME, wa_welcome: st.wa_welcome || DEFAULT_WA_WELCOME, max_msg: ml.MAX_MSG, blob_uploads: files.BLOB });
 });
@@ -468,7 +493,8 @@ app.post('/api/sales/import', (req, res) => {
   store.saveJobs({ sales_resume: null });
   const { from, to } = req.body;
   if (!validDate(from) || !validDate(to) || from > to) return res.status(400).json({ ok: false, error: 'Elegí un rango de fechas válido.' });
-  const accs = store.getAccounts().filter(a => !req.body.account || a.user_id === String(req.body.account));
+  const want = req.body.account ? String(req.body.account).split(',').filter(Boolean) : null; // una o varias cuentas
+  const accs = store.getAccounts().filter(a => !want || want.includes(a.user_id));
   if (!accs.length) return res.status(400).json({ ok: false, error: 'No hay cuentas conectadas.' });
   startSalesImport({ from, to, accs, refresh: !!req.body.refresh });
   res.json({ ok: true });
@@ -609,7 +635,8 @@ app.get('/api/clips', (req, res) => {
 });
 
 // ---------- Resultado del mes ----------
-app.get('/api/results', (req, res) => res.json(insights.results(req.query.month, Math.min(24, Math.max(3, Number(req.query.months) || 12)))));
+app.get('/api/report', (req, res) => res.json(insights.report(req.query.month, { tuyo: req.query.tuyo === '1' })));
+app.get('/api/results', (req, res) => res.json(insights.results(req.query.month, Math.min(24, Math.max(3, Number(req.query.months) || 12)), { accounts: String(req.query.accounts || ''), web: req.query.web !== '0', quotes: req.query.quotes !== '0', tuyo: req.query.tuyo === '1' })));
 app.post('/api/results/fetch-month', (req, res) => {
   const m = String(req.body.month || '');
   if (!/^\d{4}-\d{2}$/.test(m)) return res.status(400).json({ ok: false, error: 'Mes inválido.' });
@@ -730,6 +757,128 @@ app.post('/api/manuals/config', (req, res) => {
   res.json({ ok: manuals.sync({}) || false });
 });
 
+// ---------- Notificaciones push (escritorio / celular) ----------
+app.get('/api/push/key', (req, res) => res.json({ key: push.publicKey() }));
+app.post('/api/push/subscribe', (req, res) => { try { const b = req.body || {}; const r = push.subscribe(b.sub, b.label, b.topics); res.json({ ok: true, topics: r.topics }); } catch (e) { res.status(400).json({ ok: false, error: e.message }); } });
+app.post('/api/push/unsubscribe', (req, res) => { push.unsubscribe(String((req.body || {}).endpoint || '')); res.json({ ok: true }); });
+app.post('/api/push/status', (req, res) => { const s = push.find(String((req.body || {}).endpoint || '')); res.json({ on: !!s, topics: s ? s.topics : null }); });
+app.post('/api/push/test', async (req, res) => {
+  const r = await push.send('test', { title: 'Biogate · prueba', body: 'Las notificaciones de esta compu funcionan ✓', tag: 'test', url: '/' }, String((req.body || {}).endpoint || '')).catch(e => ({ error: e.message }));
+  res.json({ ok: !r.error && r.sent > 0, ...r });
+});
+// Aviso de Recompras del día (una vez por día, desde las 9 de la mañana).
+async function refillPush(force) {
+  const P = store.getPush(), today = refill.arDay(Date.now()), hour = new Date(Date.now() - 3 * 3600e3).getUTCHours();
+  if (!force && (P.last_refill_day === today || hour < 9)) return;
+  P.last_refill_day = today; store.savePush();
+  const n = refill.list().today_n;
+  if (n) await push.send('refill', { title: 'Biogate · Recompras', body: `Hoy tenés ${n} cliente${n === 1 ? '' : 's'} para avisar que se les termina el suplemento.`, tag: 'refill-' + today, url: '/#recompras' });
+}
+
+// ---------- Preguntas de compradores ----------
+app.get('/api/questions', (req, res) => res.json(questions.list()));
+app.get('/api/questions/count', (req, res) => res.json(questions.count()));
+app.post('/api/questions/sync', async (req, res) => {
+  const p = bg(questions.syncAll());
+  const r = await Promise.race([p, new Promise(ok => setTimeout(() => ok({ ok: true, pending: true }), 25e3))]).catch(e => ({ ok: false, errors: [e.message] }));
+  res.json({ ...r, ...questions.list() });
+});
+app.post('/api/questions/:id/answer', async (req, res) => {
+  try { res.json({ ok: true, question: await questions.answer(req.params.id, (req.body || {}).text, (req.body || {}).by) }); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+app.get('/api/questions/:id/history', async (req, res) => { try { res.json({ ok: true, ...(await questions.history(req.params.id)) }); } catch (e) { res.status(400).json({ ok: false, error: e.message }); } });
+app.put('/api/questions/quick', (req, res) => res.json({ ok: true, quick: questions.saveQuick((req.body || {}).quick) }));
+app.get('/api/questions/webhook-url', (req, res) => res.json({ url: process.env.BASE_URL.replace(/\/$/, '') + '/api/ml/notify', app_id: process.env.ML_CLIENT_ID || '' }));
+
+// ---------- Recompras (fin de suplemento) ----------
+app.get('/api/refill', (req, res) => {
+  try { const out = refill.list(); const p = refill.resolveMissing(); if (p) bg(p); res.json({ ...out, resolving: !!p }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/refill/name', (req, res) => { try { refill.setName((req.body || {}).who, (req.body || {}).name); res.json({ ok: true }); } catch (e) { res.status(400).json({ ok: false, error: e.message }); } });
+app.get('/api/refill/count', (req, res) => { try { res.json({ due: refill.dueCount() }); } catch (e) { res.json({ due: 0 }); } });
+app.put('/api/refill/phone', (req, res) => { try { refill.setPhone((req.body || {}).who, (req.body || {}).phone); res.json({ ok: true }); } catch (e) { res.status(400).json({ ok: false, error: e.message }); } });
+app.put('/api/refill/config', (req, res) => res.json({ ok: true, config: refill.saveConfig(req.body || {}) }));
+app.post('/api/refill/mark', (req, res) => {
+  const b = req.body || {};
+  const ids = [].concat(b.ids || b.id || []).map(String).slice(0, 200);
+  if (!['sent', 'dismissed', 'pending'].includes(b.state)) return res.status(400).json({ ok: false, error: 'Estado inválido.' });
+  for (const id of ids) refill.mark(id, b.state, b.by, b.via);
+  res.json({ ok: true });
+});
+// Texto del mensaje ya armado (para WhatsApp o para revisar antes de mandar por ML).
+app.post('/api/refill/text', async (req, res) => {
+  const id = String((req.body || {}).id);
+  let it = refill.list().items.find(i => i.id === id);
+  if (!it) return res.status(404).json({ ok: false, error: 'No encontré ese recordatorio.' });
+  if (!it.name && it.src === 'ml') { await refill.resolveName(it).catch(() => ''); it = refill.list().items.find(i => i.id === id) || it; } // que siempre salga el nombre
+  res.json({ ok: true, ml: refill.text(it, 'ml'), wa: refill.text(it, 'wa'), max_ml: ml.MAX_MSG, name: it.name || '' });
+});
+// Mensajes armados para varios a la vez (el mismo texto, con el nombre y producto de cada uno).
+app.post('/api/refill/texts', async (req, res) => {
+  const b = req.body || {}, ids = [].concat(b.ids || []).map(String).slice(0, 100);
+  const out = [];
+  for (const id of ids) {
+    let it = refill.list().items.find(i => i.id === id);
+    if (!it) continue;
+    if (!it.name && it.src === 'ml') { await refill.resolveName(it).catch(() => ''); it = refill.list().items.find(i => i.id === id) || it; }
+    out.push({ id, name: it.name || '', client: it.client, phone: it.phone || '', src: it.src, text: refill.text(it, b.kind === 'ml' ? 'ml' : 'wa', b.template) });
+  }
+  res.json({ ok: true, items: out, max_ml: ml.MAX_MSG });
+});
+// Mandar por la mensajería de Mercado Libre (de a uno o varios; con "template" se arma el texto de cada uno).
+app.post('/api/refill/send-ml', async (req, res) => {
+  const b = req.body || {}, all = refill.list().items, results = [];
+  for (const r of (Array.isArray(b.items) ? b.items : []).slice(0, 50)) {
+    const it = all.find(i => i.id === String(r.id));
+    if (!it || it.src !== 'ml') { results.push({ id: r.id, ok: false, error: 'No es una venta de Mercado Libre.' }); continue; }
+    let cur = it;
+    if (b.template && !cur.name) { await refill.resolveName(cur).catch(() => ''); cur = refill.list().items.find(i => i.id === it.id) || cur; } // que salga el nombre
+    const text = String(r.text || refill.text(cur, 'ml', b.template)).trim();
+    try {
+      const out = await ml.sendMessage({ account_id: it.account_id, order_id: it.order_id, pack_id: it.pack_id || '' }, text);
+      refill.mark(it.id, 'sent', b.by, 'Mercado Libre (' + out.via + ')');
+      results.push({ id: it.id, ok: true });
+    } catch (e) { results.push({ id: it.id, ok: false, error: e.message }); }
+    await new Promise(r => setTimeout(r, 400));
+  }
+  res.json({ ok: true, sent: results.filter(r => r.ok).length, results });
+});
+
+// ---------- Tareas del equipo ----------
+const tkErr = (res, e) => res.status(400).json({ ok: false, error: e.message });
+app.get('/api/tasks', (req, res) => res.json({ items: tasks.list(), people: tasks.people(), blob_uploads: files.BLOB }));
+app.post('/api/tasks', (req, res) => { try { res.json({ ok: true, task: tasks.create(req.body || {}) }); } catch (e) { tkErr(res, e); } });
+app.put('/api/tasks/people', (req, res) => { try { res.json({ ok: true, people: tasks.savePeople((req.body || {}).people) }); } catch (e) { tkErr(res, e); } });
+app.put('/api/tasks/:id', (req, res) => { try { res.json({ ok: true, task: tasks.update(req.params.id, req.body || {}) }); } catch (e) { tkErr(res, e); } });
+app.delete('/api/tasks/:id', async (req, res) => { try { await tasks.remove(req.params.id); res.json({ ok: true }); } catch (e) { tkErr(res, e); } });
+app.post('/api/tasks/:id/comments', (req, res) => { try { res.json({ ok: true, task: tasks.comment(req.params.id, req.body || {}) }); } catch (e) { tkErr(res, e); } });
+app.delete('/api/tasks/:id/att/:aid', async (req, res) => { try { res.json({ ok: true, task: await tasks.removeAtt(req.params.id, req.params.aid) }); } catch (e) { tkErr(res, e); } });
+// Subir foto/archivo: en la PC (o si es chico) va al servidor; en Vercel, si es grande, el navegador lo sube directo a Blob.
+app.post('/api/tasks/upload', express.raw({ type: () => true, limit: '80mb' }), async (req, res) => {
+  try { res.json({ ok: true, att: await tasks.upload({ name: req.query.name, type: req.query.type, buf: req.body }) }); } catch (e) { tkErr(res, e); }
+});
+app.post('/api/tasks/blob-token', async (req, res) => {
+  if (!files.BLOB) return res.status(400).json({ error: 'No hay Vercel Blob configurado.' });
+  if (!req.body || req.body.type !== 'blob.generate-client-token') return res.status(400).json({ error: 'Pedido inválido.' });
+  try {
+    const { handleUpload } = require('@vercel/blob/client');
+    res.json(await handleUpload({
+      body: req.body, request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        if (!/^tareas\/[\w.-]+$/.test(pathname)) throw new Error('Nombre de archivo inválido.');
+        return { maximumSizeInBytes: 200 * 1024 * 1024, addRandomSuffix: true };
+      },
+    }));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/tasks/blob-att', (req, res) => { try { res.json({ ok: true, att: tasks.blobAtt(req.body || {}) }); } catch (e) { tkErr(res, e); } });
+app.get('/api/tasks/file/:aid/:name?', (req, res) => {
+  const a = tasks.findAtt(String(req.params.aid));
+  if (!a || !a.ref || !files.exists(a.ref)) return res.status(404).send('El archivo ya no está.');
+  files.send(res, a.ref, { type: a.type || undefined, name: a.name, download: req.query.dl === '1' });
+});
+
 // ---------- Sugerencias ----------
 app.get('/api/suggestions', (req, res) => res.json(insights.suggestions()));
 app.post('/api/quality/refresh', (req, res) => res.json({ ok: insights.refreshQuality() || false }));
@@ -795,6 +944,46 @@ app.post('/api/woo/settings', (req, res) => {
   store.saveSettings({ web_fee_pct: Math.round(v * 100) / 100 }); res.json({ ok: true });
 });
 
+// ---------- TUYO (cuenta con productos de Amazon) ----------
+app.get('/api/tuyo', (req, res) => {
+  const c = tuyo.cfg();
+  // Período: desde/hasta (AAAA-MM-DD); por defecto, el mes actual.
+  const today = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+  const from = validDate(req.query.from) ? req.query.from : today.slice(0, 8) + '01';
+  const to = validDate(req.query.to) ? req.query.to : today;
+  const accounts = store.getAccounts().map(a => ({ user_id: a.user_id, nickname: a.nickname || a.user_id }));
+  const base = { cfg: { account_id: c.account_id, kg_usd: c.kg_usd, tc: c.tc }, accounts, from, to };
+  if (!c.account_id) return res.json({ ...base, products: [], summary: null, sales: [] });
+  const a = new Date(from + 'T00:00:00-03:00'), b = new Date(to + 'T23:59:59-03:00');
+  // Publicaciones vendidas por la cuenta TUYO (todas las ventas guardadas), con lo vendido en el período.
+  const prods = {};
+  for (const raw of store.getSales(null, null, c.account_id)) {
+    const s = sales.enrich(raw);
+    if (sales.EXCLUDED.includes(s.order_state)) continue;
+    const d = new Date(s.date), inRange = d >= a && d <= b;
+    for (const i of s.items || []) {
+      const k = i.item_id || ('T:' + i.title);
+      const p = prods[k] || (prods[k] = { item_id: i.item_id || '', title: i.title, sku: i.sku || '', units: 0, units_month: 0, last_price: 0, last_date: '' });
+      if (s.cancelled) continue;
+      p.units += i.qty || 1;
+      if (inRange) p.units_month += i.qty || 1;
+      if (!p.last_date || s.date > p.last_date) { p.last_date = s.date; p.last_price = i.unit_price || (s.gross / Math.max(1, s.qty || 1)); p.title = i.title || p.title; }
+    }
+  }
+  const products = Object.values(prods).map(p => ({ ...p, cost_in: c.items[p.item_id] || null, cost: tuyo.calc(c.items[p.item_id], c) }))
+    .sort((x, y) => y.units_month - x.units_month || y.units - x.units);
+  const list = withStage(store.getSales(from, to, c.account_id).map(sales.enrich)).filter(s => !sales.EXCLUDED.includes(s.order_state)).sort((x, y) => new Date(y.date) - new Date(x.date));
+  const summary = insights.mlBlock(list);
+  const okL = list.filter(s => !s.cancelled);
+  summary.mp_received = Math.round(okL.reduce((t, s) => t + (s.mp_received || 0), 0));
+  summary.mp_n = okL.filter(s => s.mp_received !== null && s.mp_received !== undefined).length;
+  summary.flex = Math.round(okL.reduce((t, s) => t + (s.flex_cost || 0), 0));
+  summary.ship_ml = Math.round(okL.reduce((t, s) => t + (s.ship_ml_deducted || 0), 0));
+  res.json({ ...base, products, summary, sales: list });
+});
+app.put('/api/tuyo/config', (req, res) => { try { const c = tuyo.saveConfig(req.body || {}); res.json({ ok: true, cfg: { account_id: c.account_id, kg_usd: c.kg_usd, tc: c.tc } }); } catch (e) { res.status(400).json({ ok: false, error: e.message }); } });
+app.put('/api/tuyo/item/:id', (req, res) => { try { res.json({ ok: true, ...tuyo.saveItem(req.params.id, req.body || {}) }); } catch (e) { res.status(400).json({ ok: false, error: e.message }); } });
+
 // ---------- Gastos del local ----------
 const EXP_METHODS = ['Efectivo', 'Transferencia', 'Débito', 'Crédito', 'Mercado Pago', 'Cheque', 'Otro'];
 const validMonth = (m) => /^\d{4}-\d{2}$/.test(String(m || ''));
@@ -833,6 +1022,29 @@ app.post('/api/expenses', (req, res) => {
   } catch (err) { res.status(400).json({ ok: false, error: err.message }); }
 });
 app.delete('/api/expenses/:id', (req, res) => { store.deleteExpense(req.params.id); res.json({ ok: true }); });
+// Importar gastos desde un Excel (el navegador lee la planilla y manda las filas ya ordenadas).
+app.post('/api/expenses/import', (req, res) => {
+  const rows = Array.isArray(req.body.rows) ? req.body.rows.slice(0, 5000) : [];
+  if (!rows.length) return res.status(400).json({ ok: false, error: 'La planilla no tiene gastos para importar.' });
+  const skipDupes = req.body.skip_dupes !== false;
+  const norm = (e) => `${e.date}|${String(e.category).toLowerCase()}|${Math.round(e.amount * 100)}`;
+  const seen = new Set(store.getExpenses().map(norm));
+  const now = new Date().toISOString(), add = [], errors = [];
+  let dupes = 0;
+  rows.forEach((r, i) => {
+    try {
+      const e = cleanExpense(r || {});
+      const plain = (x) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); const m = EXP_METHODS.find(x => plain(x) === plain(e.method)); if (m) e.method = m;
+      const k = norm(e);
+      if (skipDupes && seen.has(k)) { dupes++; return; }
+      seen.add(k);
+      add.push({ id: crypto.randomBytes(6).toString('hex'), ...e, imported: true, created_at: now });
+    } catch (err) { errors.push({ row: Number(r && r._row) || i + 1, error: err.message }); }
+  });
+  if (add.length) store.addExpenses(add);
+  const months = [...new Set(add.map(e => e.date.slice(0, 7)))].sort();
+  res.json({ ok: true, added: add.length, total: Math.round(add.reduce((t, e) => t + e.amount, 0) * 100) / 100, dupes, errors: errors.slice(0, 50), error_count: errors.length, months });
+});
 // Copia los gastos marcados como "fijo" del mes anterior (una sola vez cada uno).
 app.post('/api/expenses/copy-fixed', (req, res) => {
   const m = String(req.body.month || '');
@@ -935,6 +1147,7 @@ app.put('/api/quotes/:id/meta', (req, res) => {
   if (!q) return res.status(404).json({ ok: false, error: 'No encontré ese presupuesto.' });
   const upd = { id: q.id };
   if (req.body.channel !== undefined) upd.channel = Q_CHANNELS[req.body.channel] ? req.body.channel : '';
+  if (req.body.confirmed !== undefined) { upd.confirmed = !!req.body.confirmed; upd.confirmed_at = upd.confirmed ? new Date().toISOString() : null; }
   if (req.body.delivery !== undefined) {
     upd.delivery = Q_DELIVERY[req.body.delivery] ? req.body.delivery : '';
     if (upd.delivery !== 'envio' && q.ship && q.ship.on) upd.ship = { ...q.ship, on: false };   // deja de sumar en Envíos Flex
@@ -962,6 +1175,9 @@ app.post('/api/quotes', (req, res) => {
     file_name: `Recibo - ${client}.pdf`.replace(/[\\/:*?"<>|]/g, ''),
   };
   if (b.channel !== undefined) data.channel = Q_CHANNELS[b.channel] ? b.channel : '';
+  // Los nuevos arrancan sin confirmar; se confirman desde la lista cuando se venden.
+  if (typeof b.confirmed === 'boolean') { data.confirmed = b.confirmed; data.confirmed_at = b.confirmed ? (q?.confirmed_at || new Date().toISOString()) : null; }
+  else if (!q) data.confirmed = false;
   if (b.delivery !== undefined) data.delivery = Q_DELIVERY[b.delivery] ? b.delivery : '';
   if (q && data.delivery !== undefined && data.delivery !== 'envio' && q.ship && q.ship.on) data.ship = { ...q.ship, on: false };
   res.json({ ok: true, quote: store.saveQuote(data) });
@@ -1058,7 +1274,7 @@ async function backfillSaleDates(until = Infinity) {
   }
 }
 // En Vercel: cada vez que alguien usa el panel se fija qué toca actualizar (con la última vez guardada en la base).
-const EVERY = { sales: 15 * 60e3, woo: 15 * 60e3, costs: 6 * 3600e3, web: 6 * 3600e3, manuals: 24 * 3600e3, backfill: 24 * 3600e3 };
+const EVERY = { questions: 10 * 60e3, sales: 15 * 60e3, woo: 15 * 60e3, costs: 6 * 3600e3, web: 6 * 3600e3, manuals: 24 * 3600e3, backfill: 24 * 3600e3 };
 let autoBusy = false;
 function autoTasks(force = false) {
   if (autoBusy || MISSING.length) return [];
@@ -1069,6 +1285,8 @@ function autoTasks(force = false) {
     const stamp = {};
     if (j.sales_resume && !salesJob.running) { if (resumeSales()) stamp.last_sales = new Date().toISOString(); }
     else if (due('sales') && !salesJob.running) { stamp.last_sales = new Date().toISOString(); autoSales(); }
+    if (due('questions')) { stamp.last_questions = new Date().toISOString(); runs.push(bg(questions.syncAll().catch(e => console.log('Preguntas:', e.message)))); }
+    runs.push(bg(refillPush(false).catch(() => {})));
     if (due('woo')) { stamp.last_woo = new Date().toISOString(); wooAuto(); }
     if (due('costs')) { stamp.last_costs = new Date().toISOString(); runs.push(bg(costs.syncFromSheet().catch(e => console.log('Costos:', e.message)))); }
     if (due('web')) { stamp.last_web = new Date().toISOString(); runs.push(bg(web.sync().catch(e => console.log('Web:', e.message)))); }
@@ -1084,6 +1302,9 @@ if (!onVercel) {
     console.log(`Flex Scanner escuchando en el puerto ${PORT}`);
     startupTasks();
     setTimeout(wooAuto, 5000); setInterval(wooAuto, 15 * 60e3);
+    // Preguntas: en la PC no llegan las notificaciones de ML, se revisan cada 2 minutos.
+    setInterval(() => refillPush(false).catch(() => {}), 30 * 60e3);
+    setTimeout(() => questions.syncAll().catch(() => {}), 8000); setInterval(() => questions.syncAll().catch(() => {}), 2 * 60e3);
     setTimeout(autoSales, 20000);
     // Manuales: se leen al arrancar (solo baja los archivos nuevos o cambiados).
     setTimeout(() => manuals.sync(), 8000);
